@@ -1,0 +1,2 @@
+# slicefinder
+automatic data slicing
