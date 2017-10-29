@@ -11,6 +11,7 @@
 
 import numpy as np
 import copy
+from sklearn.metrics import log_loss
 from scipy import stats
 from risk_control import *
 
@@ -20,9 +21,10 @@ from risk_control import *
     and 'gender = male' as {'gender':['male']}
 """
 class Slice:
-    def __init__(self, filters, data):
+    def __init__(self, filters, data, complement):
         self.filters = filters
         self.data = data
+        self.complement = complement
 
     def get_filter(self):
         return self.filters
@@ -41,8 +43,8 @@ class Slice:
         return slice_desc 
 
 class SliceFinder:
-    def __init__(self):
-        pass
+    def __init__(self, model):
+        self.model = model
 
     def slicing(self, X, y):
         ''' Generate base slices '''
@@ -58,22 +60,40 @@ class SliceFinder:
                 # Bin high cardinality col
                 bin_edges = binning(X[col], n_bin=10)
                 for i in range(len(bin_edges)-1):
-                    ta = bin_edges[i] <= X[col]
-                    s = Slice({col:[bin_edges[i],bin_edges[i+1]]},
-                              (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
-                               y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ))
+                    data = (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
+                               y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ) 
+                    complement = (X[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ],
+                               y[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ] )
+                    s = Slice({col:[bin_edges[i],bin_edges[i+1]]}, data, complement)
                     base_slices.append(s)
             else:
                 for v in uniques:
-                    s = Slice({col:[v]}, (X[X[col] == v], y[X[col] == v]))                 
+                    data = (X[X[col] == v], y[X[col] == v])
+                    complement = (X[X[col] != v], y[X[col] != v])
+                    s = Slice({col:[v]}, data, complement)                 
                     base_slices.append(s)
 
         return base_slices
+
+    def evaluate_model(self, data, labels=[ 0, 1 ], metric=log_loss):
+        X, y = data[0].as_matrix(), data[1].as_matrix()
+
+        metric_by_example = []
+        for x_, y_ in zip(X, y):
+            y_p = self.model.predict_proba([x_])
+            metric_by_example.append(metric([y_], y_p, labels=labels))
+
+        return metric_by_example
         
 
-    def filter_by_effect_size(self, slices, epsilon):
+    def filter_by_effect_size(self, slices, reference, epsilon=0.5):
         ''' Filter slices by the minimum effect size '''
-        pass
+        filtered_slices = []
+        for s in slices:
+            m_slice = self.evaluate_model(s.data)
+            if effect_size(m_slice, reference) >= epsilon:
+                filtered_slices.append(s)
+        return filtered_slices
 
     def alpha_investing(self, slices, alpha):
         ''' False discovery risk control '''

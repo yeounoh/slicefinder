@@ -15,6 +15,7 @@ from sklearn.model_selection import train_test_split
 import sklearn.metrics as metrics
 
 from slice_finder import *
+from risk_control import *
 
 adult_data = pd.read_csv(
     "data/adult.data",
@@ -25,6 +26,8 @@ adult_data = pd.read_csv(
         sep=r'\s*,\s*',
         engine='python',
         na_values="?")
+
+adult_data = adult_data.dropna()
 
 # Encode categorical features
 encoders = {}
@@ -43,14 +46,19 @@ scaler = StandardScaler()
 X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns)
 X_test = scaler.transform(X_test)
 
+# Train a model
+mlp = MLPClassifier(alpha=1)
+mlp.fit(X, y)
+
 class test_slice_finder(unittest.TestCase):
 
-    def test_slicing(self):
-        SliceFinder().slicing(X, y)
-            
-
     def test_filter_by_effect_size(self):
-        pass
+        sf = SliceFinder(mlp)
+        metrics_all = sf.evaluate_model((X, y))
+        reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
+        base_slices = sf.slicing(X, y)
+        filtered_slices = sf.filter_by_effect_size(base_slices, reference, epsilon=0.5)
+        print (len(base_slices), len(filtered_slices))
 
     def test_alpha_investing(self):
         pass
