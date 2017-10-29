@@ -57,7 +57,7 @@ class test_slice_finder(unittest.TestCase):
         metrics_all = sf.evaluate_model((X, y))
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
         base_slices = sf.slicing(X, y)
-        filtered_slices = sf.filter_by_effect_size(base_slices, reference, epsilon=0.5)
+        filtered_slices = sf.filter_by_effect_size(base_slices, reference, epsilon=0.2)
         print (len(base_slices), len(filtered_slices))
 
     def test_alpha_investing(self):

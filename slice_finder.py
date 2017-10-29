@@ -85,13 +85,16 @@ class SliceFinder:
 
         return metric_by_example
         
+    def cross_slice(self, slices):
+        pass
 
     def filter_by_effect_size(self, slices, reference, epsilon=0.5):
         ''' Filter slices by the minimum effect size '''
         filtered_slices = []
         for s in slices:
             m_slice = self.evaluate_model(s.data)
-            if effect_size(m_slice, reference) >= epsilon:
+            eff_size = effect_size(m_slice, reference)
+            if eff_size >= epsilon:
                 filtered_slices.append(s)
         return filtered_slices
 
