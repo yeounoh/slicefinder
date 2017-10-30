@@ -8,6 +8,7 @@
 import unittest
 import pandas as pd
 import numpy as np
+import pickle
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 import sklearn.linear_model as linear_model
 from sklearn.neural_network import MLPClassifier
@@ -56,9 +57,20 @@ class test_slice_finder(unittest.TestCase):
         sf = SliceFinder(mlp)
         metrics_all = sf.evaluate_model((X, y))
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
+
+        # degree 1
         base_slices = sf.slicing(X, y)
-        filtered_slices = sf.filter_by_effect_size(base_slices, reference, epsilon=0.2)
-        print (len(base_slices), len(filtered_slices))
+        filtered_slices1, rejected_slices1 = sf.filter_by_effect_size(base_slices, reference, epsilon=0.2)
+
+        # degree 2
+        crossed_slices2 = sf.crossing2(rejected_slices1)
+        filtered_slices2, rejected_slices2 = sf.filter_by_effect_size(crossed_slices2, reference, epsilon=0.2)
+
+        # degree 3
+        crossed_slices3 = sf.crossing3(rejected_slices2, rejected_slices1)
+        filtered_slices3, rejected_slices3 = sf.filter_by_effect_size(crossed_slices3, reference, epsilon=0.2)
+
+        print ('%s interesting slices'%(len(filtered_slices1+filtered_slices2+filtered_slices3)))
 
     def test_alpha_investing(self):
         pass

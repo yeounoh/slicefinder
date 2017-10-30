@@ -10,6 +10,7 @@
 """
 
 import numpy as np
+import pandas as pd
 import copy
 from sklearn.metrics import log_loss
 from scipy import stats
@@ -17,8 +18,8 @@ from risk_control import *
 
 """
     Slice is specified with a dictionary that maps a set of attributes 
-    and their values. For instance, '1 <= age < 5' is expressed as {'age':[1,5]}
-    and 'gender = male' as {'gender':['male']}
+    and their values. For instance, '1 <= age < 5' is expressed as {'age':[[1,5]]}
+    and 'gender = male' as {'gender':[['male']]}
 """
 class Slice:
     def __init__(self, filters, data, complement):
@@ -34,7 +35,27 @@ class Slice:
 
     def union(self, s):
         ''' union with Slice s '''
-        pass
+
+    def intersect(self, s):
+        ''' intersect with Slice s '''
+        for k, v in s.filters.iteritems():
+            if k not in self.filters:
+                self.filters[k] = v
+            else:
+                for condition in s.filters[k]:
+                    if condition not in self.filters[k]:
+                        self.filters[k].append(condition)
+
+        idx1 = self.data[0].index
+        idx2 = s.data[0].index        
+        idx = np.intersect1d(idx1, idx2)
+        # TODO: debug, isin() not working; remove complement completely
+        new_data = pd.concat([self.data[self.data.index.isin(idx)], 
+                              self.complement[self.complement.index.isin(idx)]])
+        new_complement = pd.concat([self.data[~self.data.index.isin(idx)], 
+                              self.complement[~self.complement.index.isin(idx)]])
+        self.data = new_data
+        self.complement = new_complement
 
     def __str__(self):
         slice_desc = ''
@@ -50,7 +71,7 @@ class SliceFinder:
         ''' Generate base slices '''
         n, m = X.shape[0], X.shape[1]
 
-        base_slices = []
+        slices = []
         for col in X.columns:
             uniques, counts = np.unique(X[col], return_counts=True)
             if len(uniques) == n:
@@ -62,20 +83,47 @@ class SliceFinder:
                 for i in range(len(bin_edges)-1):
                     data = (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
                                y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ) 
-                    complement = (X[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ],
-                               y[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ] )
-                    s = Slice({col:[bin_edges[i],bin_edges[i+1]]}, data, complement)
-                    base_slices.append(s)
+                    #complement = (X[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ],
+                    #           y[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ] )
+                    s = Slice({col:[[bin_edges[i],bin_edges[i+1]]]}, data, [])
+                    slices.append(s)
             else:
                 for v in uniques:
                     data = (X[X[col] == v], y[X[col] == v])
-                    complement = (X[X[col] != v], y[X[col] != v])
-                    s = Slice({col:[v]}, data, complement)                 
-                    base_slices.append(s)
+                    #complement = (X[X[col] != v], y[X[col] != v])
+                    s = Slice({col:[[v]]}, data, [])                 
+                    slices.append(s)
 
-        return base_slices
+        return slices
+
+    def crossing2(self, slices):
+        ''' Cross uninteresting base slices together '''
+        crossed_slices = []
+        for i in range(len(slices)-1):
+            for j in range(i+1, len(slices)):
+                slice_ij = copy.deepcopy(slices[i])
+                slice_ij.intersect(slices[j])
+                corssed_slices.append(slice_ij)
+
+        return crossed_slices
+
+    def crossing3(self, slices2, slices1):
+        ''' Cross uninteresting 2-degree cross and base slices together '''
+        crossed_slices = []
+        for s2 in slices2:
+            for s1 in slices1:
+                for k, v in s1.filters.iteritems():
+                    if k in s2.filters and v[0] in s2.filters[k]:
+                        continue
+                    
+                    slice_ijk = copy.deepcopy(s2)
+                    slice_ijk.intersect(s1)
+                    crossed_silces.append(slice_ijk)
+                        
+        return crossed_slices
 
     def evaluate_model(self, data, labels=[ 0, 1 ], metric=log_loss):
+        ''' evaluate model on a given data (X, y), example by example '''
         X, y = data[0].as_matrix(), data[1].as_matrix()
 
         metric_by_example = []
@@ -85,18 +133,18 @@ class SliceFinder:
 
         return metric_by_example
         
-    def cross_slice(self, slices):
-        pass
-
     def filter_by_effect_size(self, slices, reference, epsilon=0.5):
         ''' Filter slices by the minimum effect size '''
         filtered_slices = []
+        rejected = []
         for s in slices:
             m_slice = self.evaluate_model(s.data)
             eff_size = effect_size(m_slice, reference)
             if eff_size >= epsilon:
                 filtered_slices.append(s)
-        return filtered_slices
+            else:
+                rejected.append(s)
+        return filtered_slices, rejected
 
     def alpha_investing(self, slices, alpha):
         ''' False discovery risk control '''
