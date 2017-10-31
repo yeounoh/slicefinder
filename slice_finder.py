@@ -22,10 +22,11 @@ from risk_control import *
     and 'gender = male' as {'gender':[['male']]}
 """
 class Slice:
-    def __init__(self, filters, data, complement):
+    def __init__(self, filters, data):
         self.filters = filters
         self.data = data
-        self.complement = complement
+        self.size = data[0].shape[0]
+        self.effect_size = None
 
     def get_filter(self):
         return self.filters
@@ -33,8 +34,24 @@ class Slice:
     def set_filter(self, filters):
         self.filters = filters
 
+    def set_effect_size(self, effect_size):
+        self.effect_size = effect_size
+
     def union(self, s):
         ''' union with Slice s '''
+        if set(self.filters.keys()) == set(s.filters.keys()):
+            for k in self.filters.keys():
+                self.filters[k] = self.filters[k] + s.filters[k]
+        else:
+            return False
+
+        idx = self.data[0].index.difference(s.data[0].index)
+        frames_X = [self.data[0].loc[idx], s.data[0]]
+        frames_y = [self.data[1].loc[idx], s.data[1]]
+        self.data = (pd.concat(frames_X), pd.concat(frames_y))
+        self.size = self.data[0].shape[0]
+
+        return True
 
     def intersect(self, s):
         ''' intersect with Slice s '''
@@ -46,16 +63,11 @@ class Slice:
                     if condition not in self.filters[k]:
                         self.filters[k].append(condition)
 
-        idx1 = self.data[0].index
-        idx2 = s.data[0].index        
-        idx = np.intersect1d(idx1, idx2)
-        # TODO: debug, isin() not working; remove complement completely
-        new_data = pd.concat([self.data[self.data.index.isin(idx)], 
-                              self.complement[self.complement.index.isin(idx)]])
-        new_complement = pd.concat([self.data[~self.data.index.isin(idx)], 
-                              self.complement[~self.complement.index.isin(idx)]])
-        self.data = new_data
-        self.complement = new_complement
+        idx = self.data[0].index.intersection(s.data[0].index)
+        self.data = (self.data[0].loc[idx], self.data[1].loc[idx])
+        self.size = self.data[0].shape[0]
+
+        return True
 
     def __str__(self):
         slice_desc = ''
@@ -67,6 +79,34 @@ class SliceFinder:
     def __init__(self, model):
         self.model = model
 
+    def find_slice(self, X, y, k=50, epsilon=0.2, alpha=0.05):
+        ''' Find interesting slices '''
+        assert k > 0, 'Number of recommendation k should be greater than 0'
+
+        metrics_all = self.evaluate_model((X, y))
+        reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
+
+        slices = []
+        for i in range(1,4):
+            # degree 1~3 feature crosses
+            if i == 1:
+                candidates = self.slicing(X, y)
+            elif i == 2:
+                candidates = self.crossing2(not_interesting)
+            elif i == 3:
+                candidates = self.crossing3(not_interesting)
+            interesting, not_interesting = self.filter_by_effect_size(candidates, reference, epsilon)
+            slices += interesting
+    
+            slices = self.merge_slices(slices, reference, epsilon)
+
+            slices, rejected = self.filter_by_significance(slices, reference, alpha)    
+
+            if len(slices) >= k:
+                break
+
+        return slices[:k]
+            
     def slicing(self, X, y):
         ''' Generate base slices '''
         n, m = X.shape[0], X.shape[1]
@@ -79,19 +119,16 @@ class SliceFinder:
                 continue
             if len(uniques) > n/2.:
                 # Bin high cardinality col
-                bin_edges = binning(X[col], n_bin=10)
+                bin_edges = self.binning(X[col], n_bin=10)
                 for i in range(len(bin_edges)-1):
                     data = (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
                                y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ) 
-                    #complement = (X[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ],
-                    #           y[ np.logical_or(bin_edges[i] > X[col], X[col] >= bin_edges[i+1]) ] )
-                    s = Slice({col:[[bin_edges[i],bin_edges[i+1]]]}, data, [])
+                    s = Slice({col:[[bin_edges[i],bin_edges[i+1]]]}, data)
                     slices.append(s)
             else:
                 for v in uniques:
                     data = (X[X[col] == v], y[X[col] == v])
-                    #complement = (X[X[col] != v], y[X[col] != v])
-                    s = Slice({col:[[v]]}, data, [])                 
+                    s = Slice({col:[[v]]}, data)                 
                     slices.append(s)
 
         return slices
@@ -103,7 +140,7 @@ class SliceFinder:
             for j in range(i+1, len(slices)):
                 slice_ij = copy.deepcopy(slices[i])
                 slice_ij.intersect(slices[j])
-                corssed_slices.append(slice_ij)
+                crossed_slices.append(slice_ij)
 
         return crossed_slices
 
@@ -118,7 +155,7 @@ class SliceFinder:
                     
                     slice_ijk = copy.deepcopy(s2)
                     slice_ijk.intersect(s1)
-                    crossed_silces.append(slice_ijk)
+                    crossed_slices.append(slice_ijk)
                         
         return crossed_slices
 
@@ -138,25 +175,64 @@ class SliceFinder:
         filtered_slices = []
         rejected = []
         for s in slices:
+            if s.size == 0:
+                continue
+
             m_slice = self.evaluate_model(s.data)
             eff_size = effect_size(m_slice, reference)
+            s.set_effect_size(eff_size) # Update effect size
             if eff_size >= epsilon:
                 filtered_slices.append(s)
             else:
                 rejected.append(s)
         return filtered_slices, rejected
-
-    def alpha_investing(self, slices, alpha):
-        ''' False discovery risk control '''
-        pass
     
-    def merge_slices(self, slices, epsilon):
+    def merge_slices(self, slices, reference, epsilon):
         ''' Merge slices with the same filter attributes
             if the minimum effect size condition is satisfied '''
-        pass
+        merged_slices = []
 
+        sorted_slices = sorted(slices, key=lambda x: x.effect_size, reverse=True)
+        taken = []
+        for i in range(len(sorted_slices)-1):
+            if i in taken: continue
 
-def binning(col, n_bin=10):
-    ''' Equi-height binning '''
-    bin_edges = stats.mstats.mquantiles(col, np.arange(0., 1.+1./n_bin, 1./n_bin))
-    return bin_edges
+            s_ = copy.deepcopy(sorted_slices[i])
+            taken.append(i)
+            for j in range(i, len(sorted_slices)):
+                if j in taken: continue
+
+                prev = copy.deepcopy(s_)
+                if s_.union(sorted_slices[j]):
+                    m_s_ = self.evaluate_model(s_.data)
+                    eff_size = effect_size(m_s_, reference)
+                    if eff_size >= epsilon:
+                        s_.set_effect_size(eff_size)
+                        taken.append(j)
+                    else:
+                        s_ = prev
+
+            merged_slices.append(s_)
+
+        return merged_slices
+
+    def filter_by_significance(self, slices, reference, alpha):
+        ''' Return significant slices '''
+        filtered_slices = []
+        rejected = []
+        for s in slices:
+            if s.size == 0:
+                continue
+
+            m_slice = self.evaluate_model(s.data)
+            if t_testing(m_slice, reference, alpha):
+                filtered_slices.append(s)
+            else:
+                rejected.append(s)
+        return filtered_slices, rejected
+        
+
+    def binning(self, col, n_bin=10):
+        ''' Equi-height binning '''
+        bin_edges = stats.mstats.mquantiles(col, np.arange(0., 1.+1./n_bin, 1./n_bin))
+        return bin_edges
