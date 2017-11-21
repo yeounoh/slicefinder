@@ -8,10 +8,14 @@
 import unittest
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import pickle
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 import sklearn.linear_model as linear_model
 from sklearn.neural_network import MLPClassifier
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 import sklearn.metrics as metrics
 
@@ -30,6 +34,8 @@ adult_data = pd.read_csv(
 
 # drop nan values
 adult_data = adult_data.dropna()
+
+
 # Encode categorical features
 encoders = {}
 for column in adult_data.columns:
@@ -38,23 +44,87 @@ for column in adult_data.columns:
         adult_data[column] = le.fit_transform(adult_data[column])
         encoders[column] = le
 
+
 # Split data into train and test sets
 X, y = adult_data[adult_data.columns.difference(["Target"])], adult_data["Target"]
-X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.5, test_size=0.5)
 
-# Scale features
-scaler = StandardScaler()
-X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns)
-X_test = scaler.transform(X_test)
 
 # Train a model
-mlp = MLPClassifier(alpha=1)
-mlp.fit(X, y)
+##mlp = MLPClassifier(alpha=1)
+##mlp.fit(X, y)
+lr = LogisticRegression()
+lr.fit(X, y)
+
+
+class test_data_properties(unittest.TestCase):
+    
+    def test_explore_data(self):
+        metric = metrics.log_loss
+        metric = metrics.accuracy_score
+        y_pred = lr.predict_proba(X)
+        print metrics.roc_auc_score(y.as_matrix(), y_pred[:,1])
+        y_pred_m = lr.predict_proba(X[X["Sex"] == 0])
+        print metrics.roc_auc_score(y[X["Sex"] == 0].as_matrix(), y_pred_m[:,1])
+        y_pred_f = lr.predict_proba(X[X["Sex"] == 1])
+        print metrics.roc_auc_score(y[X["Sex"] == 1].as_matrix(), y_pred_f[:,1])
+        y_pred_m = lr.predict_proba(X[X["Hours per week"] <= 40])
+        print metrics.roc_auc_score(y[X["Hours per week"] <= 40].as_matrix(), y_pred_m[:,1])
+        y_pred_f = lr.predict_proba(X[X["Hours per week"] > 40])
+        print metrics.roc_auc_score(y[X["Hours per week"] > 40].as_matrix(), y_pred_f[:,1])
+        
+        sf = SliceFinder(lr)
+        metrics_all = sf.evaluate_model((X, y),metric=metric)
+        metrics_male = sf.evaluate_model((X[X["Sex"] == 0], y[X["Sex"] == 0]), metric=metric)
+        metrics_female = sf.evaluate_model((X[X["Sex"] == 1], y[X["Sex"] == 1]), metric=metric)
+        metrics_ot = sf.evaluate_model((X[X["Hours per week"] > 40], y[X["Hours per week"] > 40]), metric=metric)
+        metrics_ot_ = sf.evaluate_model((X[X["Hours per week"] <= 40], y[X["Hours per week"] <= 40]), metric=metric)
+        metrics_edu = sf.evaluate_model((X[X["Education-Num"] >= 13], y[X["Education-Num"] >= 13]), metric=metric)
+        print np.mean(metrics_all), np.mean(metrics_ot), np.mean(metrics_edu), np.mean(metrics_male), np.mean(metrics_female)
+        print np.mean(metrics_ot_)
+    
+    def test_model_understanding(self):
+        # Scale features
+        scaler = StandardScaler()
+        numeric_cols = ["Capital Gain", "Age", "fnlwgt", "Education-Num", "Capital Loss"]
+        X[numeric_cols] = scaler.fit_transform(X[numeric_cols])
+
+        y_pred = lr.predict(X) 
+        X_mis, y_mis = X[y != y_pred], y[y != y_pred]
+        reduced_data = PCA(n_components=2).fit_transform(X_mis)
+
+        kmeans = KMeans(init='k-means++', n_clusters=20, n_init=10)
+        kmeans.fit(reduced_data)
+        x_min, x_max = reduced_data[:,0].min() - 1, reduced_data[:,0].max() + 1
+        y_min, y_max = reduced_data[:,1].min() - 1, reduced_data[:,1].max() + 1
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, (x_max-x_min)/10000), np.arange(y_min, y_max, (y_max-y_min)/10000))
+        # Obtain labels for each point in mesh. Use last trained model.
+        Z = kmeans.predict(np.c_[xx.ravel(), yy.ravel()])
+
+        # Put the result into a color plot
+        Z = Z.reshape(xx.shape)
+        plt.figure(1)
+        plt.clf()
+        plt.imshow(Z, interpolation='nearest',
+                   extent=(xx.min(), xx.max(), yy.min(), yy.max()),
+                   cmap=plt.cm.Paired,
+                   aspect='auto', origin='lower')
+
+        plt.plot(reduced_data[:, 0], reduced_data[:, 1], 'k.', markersize=2)
+        # Plot the centroids as a white X
+        centroids = kmeans.cluster_centers_
+        plt.scatter(centroids[:, 0], centroids[:, 1],
+                    marker='x', s=169, linewidths=3,
+                    color='w', zorder=10)
+        plt.xlim(x_min, x_max)
+        plt.ylim(y_min, y_max)
+        plt.xticks(())
+        plt.yticks(())
+        plt.savefig('clusters.pdf')
 
 class test_slice_finder(unittest.TestCase):
 
     def test_t_test(self):
-        sf = SliceFinder(mlp)
+        sf = SliceFinder(lr)
         metrics_all = sf.evaluate_model((X, y))
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
         base_slices = sf.slicing(X, y)
@@ -63,7 +133,7 @@ class test_slice_finder(unittest.TestCase):
             print s.__str__(), t_testing(m_slice, reference)
             
     def test_filter_by_effect_size(self):
-        sf = SliceFinder(mlp)
+        sf = SliceFinder(lr)
         metrics_all = sf.evaluate_model((X, y))
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
 
@@ -95,7 +165,7 @@ class test_slice_finder(unittest.TestCase):
         pass
 
     def test_find_slice(self):
-        sf = SliceFinder(mlp)
+        sf = SliceFinder(lr)
         recommendations = sf.find_slice(X, y, k=10)
         
         for s in recommendations:
@@ -121,5 +191,7 @@ if __name__ == '__main__':
     #unittest.main()
     suite = unittest.TestSuite()
     suite.addTest(test_slice_finder("test_find_slice"))
+    #suite.addTest(test_data_properties("test_explore_data"))
+    #suite.addTest(test_data_properties("test_model_understanding"))
     runner = unittest.TextTestRunner()
     runner.run(suite)

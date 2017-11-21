@@ -12,7 +12,7 @@
 import numpy as np
 import pandas as pd
 import copy
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, roc_auc_score, accuracy_score
 from scipy import stats
 from risk_control import *
 
@@ -79,7 +79,7 @@ class SliceFinder:
     def __init__(self, model):
         self.model = model
 
-    def find_slice(self, X, y, k=50, epsilon=0.2, alpha=0.05):
+    def find_slice(self, X, y, k=50, epsilon=0.2, alpha=0.05, degree=2):
         ''' Find interesting slices '''
         assert k > 0, 'Number of recommendation k should be greater than 0'
 
@@ -87,7 +87,7 @@ class SliceFinder:
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
 
         slices = []
-        for i in range(1,4):
+        for i in range(1,degree+1):
             # degree 1~3 feature crosses
             if i == 1:
                 candidates = self.slicing(X, y)
@@ -159,14 +159,18 @@ class SliceFinder:
                         
         return crossed_slices
 
-    def evaluate_model(self, data, labels=[ 0, 1 ], metric=log_loss):
+    def evaluate_model(self, data, metric=log_loss):
         ''' evaluate model on a given data (X, y), example by example '''
         X, y = data[0].as_matrix(), data[1].as_matrix()
-
+        
         metric_by_example = []
         for x_, y_ in zip(X, y):
-            y_p = self.model.predict_proba([x_])
-            metric_by_example.append(metric([y_], y_p, labels=labels))
+            if metric == log_loss:
+                y_p = self.model.predict_proba([x_])
+                metric_by_example.append(metric([y_], y_p, labels=self.model.classes_))
+            elif metric == accuracy_score:
+                y_p = self.model.predict([x_])
+                metric_by_example.append(metric([y_], y_p))
 
         return metric_by_example
         
