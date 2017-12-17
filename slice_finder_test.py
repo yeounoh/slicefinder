@@ -50,10 +50,10 @@ X, y = adult_data[adult_data.columns.difference(["Target"])], adult_data["Target
 
 
 # Train a model
-##mlp = MLPClassifier(alpha=1)
-##mlp.fit(X, y)
-lr = LogisticRegression()
+lr = MLPClassifier(alpha=1)
 lr.fit(X, y)
+#lr = LogisticRegression()
+#lr.fit(X, y)
 
 
 class test_data_properties(unittest.TestCase):
@@ -94,9 +94,12 @@ class test_data_properties(unittest.TestCase):
 
         kmeans = KMeans(init='k-means++', n_clusters=20, n_init=10)
         kmeans.fit(reduced_data)
+        print kmeans.cluster_centers_
+        print X_mis[np.array(kmeans.labels_) == 13]
         x_min, x_max = reduced_data[:,0].min() - 1, reduced_data[:,0].max() + 1
         y_min, y_max = reduced_data[:,1].min() - 1, reduced_data[:,1].max() + 1
         xx, yy = np.meshgrid(np.arange(x_min, x_max, (x_max-x_min)/10000), np.arange(y_min, y_max, (y_max-y_min)/10000))
+        print xx.min(), xx.max(), yy.min(), yy.max()
         # Obtain labels for each point in mesh. Use last trained model.
         Z = kmeans.predict(np.c_[xx.ravel(), yy.ravel()])
 
@@ -119,13 +122,15 @@ class test_data_properties(unittest.TestCase):
         plt.ylim(y_min, y_max)
         plt.xticks(())
         plt.yticks(())
-        plt.savefig('clusters.pdf')
+        plt.savefig('clusters.png')
 
 class test_slice_finder(unittest.TestCase):
 
     def test_t_test(self):
         sf = SliceFinder(lr)
         metrics_all = sf.evaluate_model((X, y))
+
+
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
         base_slices = sf.slicing(X, y)
         for s in base_slices:
@@ -165,8 +170,8 @@ class test_slice_finder(unittest.TestCase):
         pass
 
     def test_find_slice(self):
-        sf = SliceFinder(lr)
-        recommendations = sf.find_slice(X, y, k=10)
+        sf = SliceFinder(lr, (X, y))
+        recommendations = sf.find_slice(k=10)
         
         for s in recommendations:
             print '\n=====================\nSlice description:'

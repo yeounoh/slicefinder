@@ -22,10 +22,10 @@ from risk_control import *
     and 'gender = male' as {'gender':[['male']]}
 """
 class Slice:
-    def __init__(self, filters, data):
+    def __init__(self, filters, data_idx):
         self.filters = filters
-        self.data = data
-        self.size = data[0].shape[0]
+        self.data_idx = data_idx
+        self.size = len(data_idx)
         self.effect_size = None
 
     def get_filter(self):
@@ -45,11 +45,9 @@ class Slice:
         else:
             return False
 
-        idx = self.data[0].index.difference(s.data[0].index)
-        frames_X = [self.data[0].loc[idx], s.data[0]]
-        frames_y = [self.data[1].loc[idx], s.data[1]]
-        self.data = (pd.concat(frames_X), pd.concat(frames_y))
-        self.size = self.data[0].shape[0]
+        idx = self.data_idx.difference(s.data_idx)
+        self.data_idx = idx.append(s.data_idx)
+        self.size = len(self.data_idx)
 
         return True
 
@@ -63,9 +61,9 @@ class Slice:
                     if condition not in self.filters[k]:
                         self.filters[k].append(condition)
 
-        idx = self.data[0].index.intersection(s.data[0].index)
-        self.data = (self.data[0].loc[idx], self.data[1].loc[idx])
-        self.size = self.data[0].shape[0]
+        idx = self.data_idx.intersection(s.data_idx)
+        self.data_idx = idx
+        self.size = len(self.data_idx)
 
         return True
 
@@ -76,30 +74,30 @@ class Slice:
         return slice_desc 
 
 class SliceFinder:
-    def __init__(self, model):
+    def __init__(self, model, data):
         self.model = model
+        self.data = data
 
-    def find_slice(self, X, y, k=50, epsilon=0.2, alpha=0.05, degree=2):
+    def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=2):
         ''' Find interesting slices '''
         assert k > 0, 'Number of recommendation k should be greater than 0'
 
-        metrics_all = self.evaluate_model((X, y))
+        metrics_all = self.evaluate_model(self.data)
         reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
 
         slices = []
+        uninteresting = []
         for i in range(1,degree+1):
             # degree 1~3 feature crosses
             if i == 1:
-                candidates = self.slicing(X, y)
-            elif i == 2:
-                candidates = self.crossing2(not_interesting)
-            elif i == 3:
-                candidates = self.crossing3(not_interesting)
-            interesting, not_interesting = self.filter_by_effect_size(candidates, reference, epsilon)
-            slices += interesting
-    
-            slices = self.merge_slices(slices, reference, epsilon)
+                candidates = self.slicing()
+            else:
+                candidates = self.crossing(uninteresting, i)
+            interesting, uninteresting_ = self.filter_by_effect_size(candidates, reference, epsilon)
+            uninteresting += uninteresting_
 
+            slices += interesting
+            slices = self.merge_slices(slices, reference, epsilon)
             slices, rejected = self.filter_by_significance(slices, reference, alpha)    
 
             if len(slices) >= k:
@@ -107,8 +105,9 @@ class SliceFinder:
 
         return slices[:k]
             
-    def slicing(self, X, y):
+    def slicing(self):
         ''' Generate base slices '''
+        X, y = self.data[0], self.data[1]
         n, m = X.shape[0], X.shape[1]
 
         slices = []
@@ -121,42 +120,29 @@ class SliceFinder:
                 # Bin high cardinality col
                 bin_edges = self.binning(X[col], n_bin=10)
                 for i in range(len(bin_edges)-1):
-                    data = (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
-                               y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ) 
-                    s = Slice({col:[[bin_edges[i],bin_edges[i+1]]]}, data)
+                    #data = (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
+                    #           y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ) 
+                    data_idx = X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ].index
+                    s = Slice({col:[[bin_edges[i],bin_edges[i+1]]]}, data_idx)
                     slices.append(s)
             else:
                 for v in uniques:
-                    data = (X[X[col] == v], y[X[col] == v])
-                    s = Slice({col:[[v]]}, data)                 
+                    #data = (X[X[col] == v], y[X[col] == v])
+                    data_idx = X[X[col] == v].index
+                    s = Slice({col:[[v]]}, data_idx)                 
                     slices.append(s)
 
         return slices
 
-    def crossing2(self, slices):
-        ''' Cross uninteresting base slices together '''
+    def crossing(self, slices, degree):
+        ''' Cross uninteresting slices together '''
         crossed_slices = []
-        for i in range(len(slices)-1):
+        for i in range(len(slices-1)):
             for j in range(i+1, len(slices)):
-                slice_ij = copy.deepcopy(slices[i])
-                slice_ij.intersect(slices[j])
-                crossed_slices.append(slice_ij)
-
-        return crossed_slices
-
-    def crossing3(self, slices2, slices1):
-        ''' Cross uninteresting 2-degree cross and base slices together '''
-        crossed_slices = []
-        for s2 in slices2:
-            for s1 in slices1:
-                for k, v in s1.filters.iteritems():
-                    if k in s2.filters and v[0] in s2.filters[k]:
-                        continue
-                    
-                    slice_ijk = copy.deepcopy(s2)
-                    slice_ijk.intersect(s1)
-                    crossed_slices.append(slice_ijk)
-                        
+                if len(slices[i].filters) + len(slices[j].filters) == degree:
+                    slice_ij = copy.deepcopy(slices[i])
+                    slice_ij.intersect(slices[j])
+                    crossed_slices.append(slice_ij)
         return crossed_slices
 
     def evaluate_model(self, data, metric=log_loss):
@@ -181,8 +167,8 @@ class SliceFinder:
         for s in slices:
             if s.size == 0:
                 continue
-
-            m_slice = self.evaluate_model(s.data)
+            data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
+            m_slice = self.evaluate_model(data)
             eff_size = effect_size(m_slice, reference)
             s.set_effect_size(eff_size) # Update effect size
             if eff_size >= epsilon:
@@ -208,7 +194,8 @@ class SliceFinder:
 
                 prev = copy.deepcopy(s_)
                 if s_.union(sorted_slices[j]):
-                    m_s_ = self.evaluate_model(s_.data)
+                    m_s_ = self.evaluate_model( 
+                                (self.data[0].loc[s_.data_idx],self.data[1].loc[s_.data_idx]) )
                     eff_size = effect_size(m_s_, reference)
                     if eff_size >= epsilon:
                         s_.set_effect_size(eff_size)
@@ -228,7 +215,8 @@ class SliceFinder:
             if s.size == 0:
                 continue
 
-            m_slice = self.evaluate_model(s.data)
+            m_slice = self.evaluate_model(
+                            (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx]))
             if t_testing(m_slice, reference, alpha):
                 filtered_slices.append(s)
             else:
