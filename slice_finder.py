@@ -9,6 +9,7 @@
     Author: Yeounoh Chung (yeounohster@gmail.com)
 """
 
+import pickle
 import numpy as np
 import pandas as pd
 import copy
@@ -53,7 +54,7 @@ class Slice:
 
     def intersect(self, s):
         ''' intersect with Slice s '''
-        for k, v in s.filters.iteritems():
+        for k, v in list(s.filters.items()):
             if k not in self.filters:
                 self.filters[k] = v
             else:
@@ -69,7 +70,7 @@ class Slice:
 
     def __str__(self):
         slice_desc = ''
-        for k, v in self.filters.iteritems():
+        for k, v in list(self.filters.items()):
             slice_desc += '%s:%s '%(k,v)
         return slice_desc 
 
@@ -78,7 +79,7 @@ class SliceFinder:
         self.model = model
         self.data = data
 
-    def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=2):
+    def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3):
         ''' Find interesting slices '''
         assert k > 0, 'Number of recommendation k should be greater than 0'
 
@@ -102,6 +103,13 @@ class SliceFinder:
 
             if len(slices) >= k:
                 break
+
+        slices = sorted(slices, key=lambda s: s.size, reverse=True)
+        with open('slices.p','wb') as handle:
+            pickle.dump(slices, handle)
+        uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
+        with open('uninteresting.p', 'wb') as handle:
+            pickle.dump(uninteresting, handle)
 
         return slices[:k]
             
@@ -137,7 +145,7 @@ class SliceFinder:
     def crossing(self, slices, degree):
         ''' Cross uninteresting slices together '''
         crossed_slices = []
-        for i in range(len(slices-1)):
+        for i in range(len(slices)-1):
             for j in range(i+1, len(slices)):
                 if len(slices[i].filters) + len(slices[j].filters) == degree:
                     slice_ij = copy.deepcopy(slices[i])

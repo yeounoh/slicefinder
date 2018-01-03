@@ -1,0 +1,20 @@
+digraph Tree {
+node [shape=box] ;
+0 [label="Martial Status <= 3.5\nentropy = 0.748\nsamples = 30162\nvalue = [23730, 6432]\nclass = Correct"] ;
+1 [label="Education-Num <= 12.5\nentropy = 0.885\nsamples = 18670\nvalue = [13007, 5663]\nclass = Correct"] ;
+0 -> 1 [labeldistance=2.5, labelangle=45, headlabel="True"] ;
+2 [label="Age <= 37.5\nentropy = 0.802\nsamples = 13573\nvalue = [10256, 3317]\nclass = Correct"] ;
+1 -> 2 ;
+3 [label="entropy = 0.692\nsamples = 5218\nvalue = [4249, 969]\nclass = Correct"] ;
+2 -> 3 ;
+4 [label="entropy = 0.857\nsamples = 8355\nvalue = [6007, 2348]\nclass = Correct"] ;
+2 -> 4 ;
+5 [label="entropy = 0.995\nsamples = 5097\nvalue = [2751, 2346]\nclass = Correct"] ;
+1 -> 5 ;
+6 [label="Age <= 27.5\nentropy = 0.354\nsamples = 11492\nvalue = [10723, 769]\nclass = Correct"] ;
+0 -> 6 [labeldistance=2.5, labelangle=-45, headlabel="False"] ;
+7 [label="entropy = 0.16\nsamples = 5810\nvalue = [5674, 136]\nclass = Correct"] ;
+6 -> 7 ;
+8 [label="entropy = 0.504\nsamples = 5682\nvalue = [5049, 633]\nclass = Correct"] ;
+6 -> 8 ;
+}
