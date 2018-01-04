@@ -107,6 +107,8 @@ class SliceFinder:
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
         with open('slices.p','wb') as handle:
             pickle.dump(slices, handle)
+        uninteresting = self.merge_slices(uninteresting, reference, 0.)
+        uninteresting, rejected = self.filter_by_significance(uninteresting, reference, alpha)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
         with open('uninteresting.p', 'wb') as handle:
             pickle.dump(uninteresting, handle)
@@ -128,14 +130,11 @@ class SliceFinder:
                 # Bin high cardinality col
                 bin_edges = self.binning(X[col], n_bin=10)
                 for i in range(len(bin_edges)-1):
-                    #data = (X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ],
-                    #           y[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ] ) 
                     data_idx = X[ np.logical_and(bin_edges[i] <= X[col], X[col] < bin_edges[i+1]) ].index
                     s = Slice({col:[[bin_edges[i],bin_edges[i+1]]]}, data_idx)
                     slices.append(s)
             else:
                 for v in uniques:
-                    #data = (X[X[col] == v], y[X[col] == v])
                     data_idx = X[X[col] == v].index
                     s = Slice({col:[[v]]}, data_idx)                 
                     slices.append(s)
