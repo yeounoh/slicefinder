@@ -88,24 +88,33 @@ class test_data_properties(unittest.TestCase):
         print ("hours/wk > 40, log_loss:", np.mean(metrics_ot), 'eff size:', effect_size(metrics_ot, reference))
         print ("hours/wk <= 40, log_loss:", np.mean(metrics_ot_),'eff size:', effect_size(metrics_ot_, reference))
     
-    def test_model_understanding(self):
+    def test_clustering_example(self):
         # Scale features
         scaler = StandardScaler()
         numeric_cols = ["Capital Gain", "Age", "fnlwgt", "Education-Num", "Capital Loss"]
-        X[numeric_cols] = scaler.fit_transform(X[numeric_cols])
+        X_ = copy.deepcopy(X)
+        X_[numeric_cols] = scaler.fit_transform(X_[numeric_cols])
 
         y_pred = lr.predict(X) 
-        X_mis, y_mis = X[y != y_pred], y[y != y_pred]
+        X_mis, y_mis = X_[y != y_pred], y[y != y_pred]
         reduced_data = PCA(n_components=2).fit_transform(X_mis)
 
         kmeans = KMeans(init='k-means++', n_clusters=20, n_init=10)
         kmeans.fit(reduced_data)
+
+        print ('Cluster centroids')
+        print ('==============================')
         print (kmeans.cluster_centers_)
-        print (X_mis[np.array(kmeans.labels_) == 13])
+        print ('==============================')
+        
         x_min, x_max = reduced_data[:,0].min() - 1, reduced_data[:,0].max() + 1
         y_min, y_max = reduced_data[:,1].min() - 1, reduced_data[:,1].max() + 1
         xx, yy = np.meshgrid(np.arange(x_min, x_max, (x_max-x_min)/10000), np.arange(y_min, y_max, (y_max-y_min)/10000))
+        print ('figure axes')
+        print ('==============================')
         print (xx.min(), xx.max(), yy.min(), yy.max())
+        print ('==============================')
+
         # Obtain labels for each point in mesh. Use last trained model.
         Z = kmeans.predict(np.c_[xx.ravel(), yy.ravel()])
 
@@ -129,6 +138,43 @@ class test_data_properties(unittest.TestCase):
         plt.xticks(())
         plt.yticks(())
         plt.savefig('clusters.png')
+
+
+    def test_clustering(self):
+        sf = SliceFinder(lr, (X,y))
+        metrics_all = sf.evaluate_model((X, y))
+        reference = (np.mean(metrics_all), np.std(metrics_all), len(metrics_all))
+
+        # Scale features
+        scaler = StandardScaler()
+        numeric_cols = ["Capital Gain", "Age", "fnlwgt", "Education-Num", "Capital Loss"]
+        X_ = copy.deepcopy(X)
+        X_[numeric_cols] = scaler.fit_transform(X_[numeric_cols])
+
+        y_pred = lr.predict(X) 
+        X_mis, y_mis = X_[y != y_pred], y[y != y_pred]
+        reduced_data_train = PCA(n_components=2).fit_transform(X_mis)
+        reduced_data_test = PCA(n_components=2).fit_transform(X_)
+
+        for n_clusters in range(1, 21):
+            kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=10)
+            kmeans.fit(reduced_data_train) # train with mis-classified data
+            y_predicted = kmeans.predict(reduced_data_test) # classify all data
+
+            # cluster the original data with the leanred centroids
+            # analyze each cluster (e.g., compute effect size)
+            print('==========================')
+            print('n_clusters: %s'%n_clusters)
+            print('==========================')
+            for cluster_id in np.unique(kmeans.labels_):
+                X_cluster = X[np.array(y_predicted) == cluster_id]
+                y_cluster = y[np.array(y_predicted) == cluster_id]
+                eff_size_ = effect_size(sf.evaluate_model((X_cluster, y_cluster)), reference)
+                print('id: %s, size: %s, eff_size: %s'%(cluster_id, len(X_cluster), eff_size_))
+            print('==========================')
+
+        
+        
 
     def test_decision_tree(self):
         # 0- correct, 1- wrongly classified
@@ -157,9 +203,9 @@ class test_data_properties(unittest.TestCase):
                 decisions.append(1)
         
         clf = DecisionTree((X, y), lr)
-        clf = clf.fit(max_depth=5, min_size=5000)
+        clf = clf.fit(max_depth=3, min_size=100)
 
-        recommendations = clf.recommend_slices(k=20, min_effect_size=0.4)
+        recommendations = clf.recommend_slices(k=20, min_effect_size=0.3)
         for r in recommendations:
             print ('====================')
             print (', '.join(r.__ancestry__()))
@@ -201,12 +247,4 @@ class test_slice_finder(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    #unittest.main()
-    suite = unittest.TestSuite()
-    #suite.addTest(test_data_properties("test_decision_tree"))
-    suite.addTest(test_data_properties("test_decision_tree_with_effect_size"))
-    #suite.addTest(test_slice_finder("test_find_slice"))
-    #suite.addTest(test_data_properties("test_explore_data"))
-    #suite.addTest(test_data_properties("test_model_understanding"))
-    runner = unittest.TextTestRunner()
-    runner.run(suite)
+    unittest.main()

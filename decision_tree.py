@@ -43,13 +43,38 @@ class DecisionTree:
         # process left child
         if len(X_left) >= min_size:
             node.left_child = self.get_split_((X_left, y_left))
-            node.left_child.parent = node
-            node.left_child = self.split_(node.left_child, depth+1, max_depth, min_size)
+            if node.left_child is not None:
+                node.left_child.parent = node
+                node.left_child = self.split_(node.left_child, depth+1, max_depth, min_size)
         # process right child
         if len(X_right) >= min_size:
             node.right_child = self.get_split_((X_right, y_right))
-            node.right_child.parent = node
-            node.right_child = self.split_(node.right_child, depth+1, max_depth, min_size)
+            if node.right_child is not None:
+                node.right_child.parent = node
+                node.right_child = self.split_(node.right_child, depth+1, max_depth, min_size)
+
+        return node
+
+    def test_split_(self, X, y, attr_idx, value):
+        left = X[X.iloc[:, attr_idx] < value].index
+        right = X[X.iloc[:, attr_idx] >= value].index
+        IG = self.entropy_(y) - len(left)/len(y) * self.entropy_(y[left]) - len(right)/len(y) * self.entropy_(y[right])
+        return IG, left, right
+
+    def get_split_(self, data):
+        X, y = data[0], data[1]
+        n_examples, n_features = data[0].shape
+        IG, left_group, right_group, attr_idx, value  = 0, pd.DataFrame().index, pd.DataFrame().index, None, None
+        for attr_idx_ in range(n_features): 
+            for v in np.unique(X.iloc[:,attr_idx_]):
+                IG_, left_, right_ = self.test_split_(X, y, attr_idx_, v)
+                if IG < IG_:
+                    IG, left_group, right_group, attr_idx, value = IG_, left_, right_, attr_idx_, v
+
+        if attr_idx is None:
+            return None
+        else:
+            node = Node((self.columns[attr_idx], value), left_group, right_group) 
 
         return node
 
@@ -62,26 +87,8 @@ class DecisionTree:
             entropy += -p * np.log2(p)
         return entropy
 
-    def test_split_(self, X, y, attr_idx, value):
-        left = X[X.iloc[:, attr_idx] < value].index
-        right = X[X.iloc[:, attr_idx] >= value].index
-        IG = self.entropy_(y) - len(left)/len(y) * self.entropy_(y[left]) - len(right)/len(y) * self.entropy_(y[right])
-        return IG, left, right
 
-    def get_split_(self, data):
-        X, y = data[0], data[1]
-        n_examples, n_features = data[0].shape
-        IG, left_group, right_group, attr_idx, value  = 0, list(), list(), None, None
-        for attr_idx_ in range(n_features): 
-            for v in np.unique(X.iloc[:,attr_idx_]):
-                IG_, left_, right_ = self.test_split_(X, y, attr_idx_, v)
-                if IG < IG_:
-                    IG, left_group, right_group, attr_idx, value = IG_, left_, right_, attr_idx_, v
-        node = Node('%s < %s'%(self.columns[attr_idx], value), left_group, right_group) 
-
-        return node
-
-    def recommend_slices(self, k=20, min_effect_size=0.5):
+    def recommend_slices(self, k=20, min_effect_size=0.3):
         recommendations = []
         candidates = [self.root]
         k_ = 0
@@ -124,12 +131,19 @@ class Node:
         self.parent = None
         
     def __str__(self):
-        return '%s, size: %s'%(self.desc, len(self.left_group)+len(self.right_group))
+        description_ = ''
+        if self.parent is None:
+            description_ = 'root'
+        elif self.parent.left_child is self:
+            description_ = '%s < %s'%(self.desc[0], self.desc[1])
+        elif self.parent.right_child is self:
+            description_ = '%s >= %s'%(self.desc[0], self.desc[1])
+        return '%s, size: %s'%(description_, len(self.left_group)+len(self.right_group))
 
     def __ancestry__(self):
         ancestors = []
         if self.parent is not None:
-            ancestors.append(self.parent.desc)
+            ancestors.append(self.parent.__str__())
             ancestors += self.parent.__ancestry__()
         return ancestors
     
