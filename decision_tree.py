@@ -144,6 +144,6 @@ class Node:
         ancestors = []
         if self.parent is not None:
             ancestors.append(self.parent.__str__())
-            ancestors += self.parent.__ancestry__()
+            ancestors = self.parent.__ancestry__() + ancestors
         return ancestors
     

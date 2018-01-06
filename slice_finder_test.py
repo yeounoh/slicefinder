@@ -173,8 +173,6 @@ class test_data_properties(unittest.TestCase):
                 print('id: %s, size: %s, eff_size: %s'%(cluster_id, len(X_cluster), eff_size_))
             print('==========================')
 
-        
-        
 
     def test_decision_tree(self):
         # 0- correct, 1- wrongly classified

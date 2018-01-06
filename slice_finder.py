@@ -107,8 +107,6 @@ class SliceFinder:
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
         with open('slices.p','wb') as handle:
             pickle.dump(slices, handle)
-        uninteresting = self.merge_slices(uninteresting, reference, 0.)
-        uninteresting, rejected = self.filter_by_significance(uninteresting, reference, alpha)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
         with open('uninteresting.p', 'wb') as handle:
             pickle.dump(uninteresting, handle)
