@@ -23,6 +23,7 @@ class DecisionTree:
 
     def fit(self, max_depth=3, min_size=10):
         root = self.get_split_(self.data)
+        print ( 'test', root)
         root = self.split_(root, 0, max_depth, min_size) 
         self.root = root
         return self
@@ -30,8 +31,6 @@ class DecisionTree:
     def split_(self, node, depth, max_depth, min_size):
         
         # check for no split
-        if node is None:
-            return node
         if node.left_group.empty or node.right_group.empty:
             return node
         
@@ -85,7 +84,7 @@ class DecisionTree:
         classes = np.unique(y)
         entropy = 0.
         for c in classes:
-            p = np.sum(y == c) / size             
+            p = float(np.sum(y == c)) / size             
             entropy += -p * np.log2(p)
         return entropy
 
@@ -96,8 +95,6 @@ class DecisionTree:
         k_ = 0
         while len(candidates) > 0 and k_ < k:
             candidate = candidates.pop(0)
-            if candidate is None:
-                continue
             indices = candidate.left_group.union(candidate.right_group)
             metrics = self.sf.evaluate_model((self.data[0].loc[indices], self.data[1].loc[indices]))
             eff_size = effect_size(metrics, self.reference)
@@ -124,6 +121,7 @@ class DecisionTree:
 
     def __str__(self):
         self.traverse_(self.root)
+        return '=End-of-traverse='
 
 class Node:
     def __init__(self, desc, left_group, right_group):
