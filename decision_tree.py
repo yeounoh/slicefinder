@@ -30,6 +30,8 @@ class DecisionTree:
     def split_(self, node, depth, max_depth, min_size):
         
         # check for no split
+        if node is None:
+            return node
         if node.left_group.empty or node.right_group.empty:
             return node
         
@@ -94,6 +96,8 @@ class DecisionTree:
         k_ = 0
         while len(candidates) > 0 and k_ < k:
             candidate = candidates.pop(0)
+            if candidate is None:
+                continue
             indices = candidate.left_group.union(candidate.right_group)
             metrics = self.sf.evaluate_model((self.data[0].loc[indices], self.data[1].loc[indices]))
             eff_size = effect_size(metrics, self.reference)

@@ -19,6 +19,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn import tree
 from sklearn.model_selection import train_test_split
 import sklearn.metrics as metrics
+from sklearn.ensemble import RandomForestClassifier
 
 from slice_finder import *
 from risk_control import *
@@ -34,7 +35,6 @@ adult_data = pd.read_csv(
         sep=r'\s*,\s*',
         engine='python',
         na_values="?")
-
 # drop nan values
 adult_data = adult_data.dropna()
 
@@ -46,7 +46,7 @@ for column in adult_data.columns:
         le = LabelEncoder()
         adult_data[column] = le.fit_transform(adult_data[column])
         encoders[column] = le
-        #print(column, le.classes_, le.transform(le.classes_))
+        print(column, le.classes_, le.transform(le.classes_))
 
 X, y = adult_data[adult_data.columns.difference(["Target"])], adult_data["Target"]
 
@@ -55,7 +55,8 @@ X, y = adult_data[adult_data.columns.difference(["Target"])], adult_data["Target
 #lr.fit(X, y)
 lr = LogisticRegression()
 lr.fit(X, y)
-
+rf = RandomForestClassifier(max_depth=5, n_estimators=10)
+rf.fit(X, y)
 
 class test_data_properties(unittest.TestCase):
     
@@ -88,6 +89,62 @@ class test_data_properties(unittest.TestCase):
         print ("hours/wk > 40, log_loss:", np.mean(metrics_ot), 'eff size:', effect_size(metrics_ot, reference))
         print ("hours/wk <= 40, log_loss:", np.mean(metrics_ot_),'eff size:', effect_size(metrics_ot_, reference))
     
+    def test_model_fairness(self):
+        from sklearn.metrics import roc_curve, auc
+
+        plt.figure()
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        y_pred = rf.predict_proba(X)[:,1]
+        fpr, tpr, _ = roc_curve(y.as_matrix().ravel(), y_pred.ravel())
+        plt.plot(fpr, tpr, lw=2,label='RF')
+        y_pred = lr.predict_proba(X)[:,1]
+        fpr, tpr, _ = roc_curve(y.as_matrix().ravel(), y_pred.ravel())
+        plt.plot(fpr, tpr, lw=2,label='LR')
+
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver operating characteristic example')
+        plt.legend(loc="lower right")
+        plt.savefig('roc.png')
+
+        plt.figure()
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        labels = ['Amer-Indian-Eskimo', 'Asian-Pac-Islander', 'Black', 'Other', 'White'] 
+        for i in range(len(labels)):
+            y_pred = rf.predict_proba(X[X['Race'] == i])[:,1]
+            fpr, tpr, _ = roc_curve(y[X['Race'] == i].as_matrix().ravel(), y_pred.ravel(), drop_intermediate=False)
+            plt.plot(fpr, tpr, lw=2,label=labels[i])
+
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver operating characteristic example')
+        plt.legend(loc="lower right")
+        plt.savefig('roc_race.png')
+
+        plt.figure()
+        ax = plt.gca()
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        #ax.annotate('Ideal Classifier', xy=(0, 1), xytext=(0.04, 0.91),
+        #    arrowprops=dict(facecolor='black', frac=0.05, shrink=0.25, width=1),
+        #    )
+        labels = ['Female', 'Male'] 
+        for i in range(len(labels)):
+            y_pred = rf.predict_proba(X[X['Sex'] == i])[:,1]
+            fpr, tpr, _ = roc_curve(y[X['Sex'] == i].as_matrix().ravel(), y_pred.ravel())
+            plt.plot(fpr, tpr, lw=2,label=labels[i])
+
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver operating characteristic example')
+        plt.legend(loc="lower right")
+        plt.savefig('roc_gender.png')
+
     def test_clustering_example(self):
         # Scale features
         scaler = StandardScaler()

@@ -98,7 +98,7 @@ class SliceFinder:
             uninteresting += uninteresting_
 
             slices += interesting
-            slices = self.merge_slices(slices, reference, epsilon)
+            #slices = self.merge_slices(slices, reference, epsilon)
             slices, rejected = self.filter_by_significance(slices, reference, alpha)    
 
             if len(slices) >= k:
