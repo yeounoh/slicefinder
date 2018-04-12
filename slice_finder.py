@@ -13,6 +13,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import copy
+import concurrent.futures
 from sklearn.metrics import log_loss, roc_auc_score, accuracy_score
 from scipy import stats
 from risk_control import *
@@ -28,12 +29,16 @@ class Slice:
         self.data_idx = data_idx
         self.size = len(data_idx)
         self.effect_size = None
+        self.metric = None
 
     def get_filter(self):
         return self.filters
 
     def set_filter(self, filters):
         self.filters = filters
+
+    def set_metric(self, metric):
+        self.metric = metric
 
     def set_effect_size(self, effect_size):
         self.effect_size = effect_size
@@ -79,7 +84,7 @@ class SliceFinder:
         self.model = model
         self.data = data
 
-    def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3):
+    def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3, risk_control=True, max_workers=1):
         ''' Find interesting slices '''
         assert k > 0, 'Number of recommendation k should be greater than 0'
 
@@ -89,28 +94,35 @@ class SliceFinder:
         slices = []
         uninteresting = []
         for i in range(1,degree+1):
+            print('degree %s'%i)
             # degree 1~3 feature crosses
+            print ('crossing')
             if i == 1:
                 candidates = self.slicing()
             else:
                 candidates = self.crossing(uninteresting, i)
-            interesting, uninteresting_ = self.filter_by_effect_size(candidates, reference, epsilon)
+            print('done')
+            print ('effect size filtering')
+            interesting, uninteresting_ = self.filter_by_effect_size(candidates, reference, epsilon, max_workers=max_workers, risk_control=risk_control)
             uninteresting += uninteresting_
-
+            print('done')
             slices += interesting
             #slices = self.merge_slices(slices, reference, epsilon)
-            slices, rejected = self.filter_by_significance(slices, reference, alpha)    
-
+            #if risk_control:
+            #    print('significance testing')
+            #    slices, rejected = self.filter_by_significance(slices, reference, alpha, max_workers=max_workers)    
+            #    print('done')
             if len(slices) >= k:
                 break
 
+        print ('sorting')
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
         with open('slices.p','wb') as handle:
             pickle.dump(slices, handle)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
         with open('uninteresting.p', 'wb') as handle:
             pickle.dump(uninteresting, handle)
-
+        print('done')
         return slices[:k]
             
     def slicing(self):
@@ -156,6 +168,8 @@ class SliceFinder:
         
         metric_by_example = []
         for x_, y_ in zip(X, y):
+            if np.isnan(x_).any():
+                continue
             if metric == log_loss:
                 y_p = self.model.predict_proba([x_])
                 metric_by_example.append(metric([y_], y_p, labels=self.model.classes_))
@@ -165,22 +179,38 @@ class SliceFinder:
 
         return metric_by_example
         
-    def filter_by_effect_size(self, slices, reference, epsilon=0.5):
+    def filter_by_effect_size(self, slices, reference, epsilon=0.5, max_workers=1, alpha=0.05, risk_control=True):
         ''' Filter slices by the minimum effect size '''
         filtered_slices = []
         rejected = []
-        for s in slices:
-            if s.size == 0:
-                continue
-            data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
-            m_slice = self.evaluate_model(data)
-            eff_size = effect_size(m_slice, reference)
-            s.set_effect_size(eff_size) # Update effect size
-            if eff_size >= epsilon:
-                filtered_slices.append(s)
-            else:
-                rejected.append(s)
+
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            batch_jobs = []
+            for s in slices:
+                if s.size == 0:
+                    continue
+                data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
+                batch_jobs.append(executor.submit(self.eff_size_job, data, reference, alpha))
+            for job in concurrent.futures.as_completed(batch_jobs):
+                if job.cancelled():
+                    continue
+                elif job.done():
+                    eff_size, m_slice = job.result()
+                    s.set_metric(np.mean(m_slice))
+                    s.set_effect_size(eff_size) # Update effect size
+                    if eff_size >= epsilon:
+                        #if risk_control is False or test_result:
+                        filtered_slices.append(s)
+                    else:
+                        rejected.append(s)
         return filtered_slices, rejected
+
+    def eff_size_job(self, data, reference, alpha=0.05):
+        m_slice = self.evaluate_model(data)
+        eff_size = effect_size(m_slice, reference)
+        #test_result = t_testing(m_slice, reference, alpha)
+        return eff_size, m_slice#, test_result
     
     def merge_slices(self, slices, reference, epsilon):
         ''' Merge slices with the same filter attributes
@@ -212,24 +242,35 @@ class SliceFinder:
 
         return merged_slices
 
-    def filter_by_significance(self, slices, reference, alpha):
+    def filter_by_significance(self, slices, reference, alpha, max_workers=1):
         ''' Return significant slices '''
         filtered_slices = []
         rejected = []
-        for s in slices:
-            if s.size == 0:
-                continue
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            batch_jobs = []
+            for s in slices:
+                if s.size == 0:
+                    continue
 
-            m_slice = self.evaluate_model(
-                            (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx]))
-            if t_testing(m_slice, reference, alpha):
-                filtered_slices.append(s)
-            else:
-                rejected.append(s)
+                data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
+                batch_jobs.append(executor.submit(self.significance_job, data, reference, alpha))
+            for job in concurrent.futures.as_completed(batch_jobs):
+                if job.cancelled():
+                    continue
+                elif job.done():
+                    test_result = job.result()
+                    if test_result:
+                        filtered_slices.append(s)
+                    else:
+                        rejected.append(s)
         return filtered_slices, rejected
         
+    def significance_job(self, data, reference, alpha):
+        m_slice = self.evaluate_model(data)
+        test_result = t_testing(m_slice, reference, alpha)
+        return test_result
 
-    def binning(self, col, n_bin=10):
+    def binning(self, col, n_bin=20):
         ''' Equi-height binning '''
         bin_edges = stats.mstats.mquantiles(col, np.arange(0., 1.+1./n_bin, 1./n_bin))
         return bin_edges

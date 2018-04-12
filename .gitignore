@@ -1,4 +1,6 @@
 data/credit*
+figures/*
+*.xlsx
 *.pdf
 *.png
 *.swp
