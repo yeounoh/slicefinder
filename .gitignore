@@ -1,5 +1,7 @@
-data/credit*
+data/*
+log/*
 figures/*
+
 *.xlsx
 *.pdf
 *.png
