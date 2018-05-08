@@ -10,3 +10,4 @@ figures/*
 *.p
 *.ps
 *.dot
+*.ipynb
