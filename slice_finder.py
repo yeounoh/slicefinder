@@ -12,6 +12,7 @@
 import pickle
 import numpy as np
 import pandas as pd
+import functools
 import copy
 import concurrent.futures
 from sklearn.metrics import log_loss, roc_auc_score, accuracy_score
@@ -103,7 +104,9 @@ class SliceFinder:
                 candidates = self.crossing(uninteresting, i)
             print('done')
             print ('effect size filtering')
-            interesting, uninteresting_ = self.filter_by_effect_size(candidates, reference, epsilon, max_workers=max_workers, risk_control=risk_control)
+            interesting, uninteresting_ = self.filter_by_effect_size(candidates, reference, epsilon, 
+                                                                    max_workers=max_workers, 
+                                                                    risk_control=risk_control)
             uninteresting += uninteresting_
             print('done')
             slices += interesting
@@ -164,6 +167,22 @@ class SliceFinder:
 
     def evaluate_model(self, data, metric=log_loss):
         ''' evaluate model on a given data (X, y), example by example '''
+        X, y = data[0], data[1]
+        X['Label'] = y
+        X = X.dropna()
+        y = X['Label'].as_matrix()
+        X = X.drop(['Label'], axis=1).as_matrix()
+        
+        y_p = self.model.predict_proba(X)
+        y_p = list(map(functools.partial(np.expand_dims, axis=0), y_p))
+        y = list(map(functools.partial(np.expand_dims, axis=0), y))
+        if metric == log_loss:
+            return list(map(functools.partial(metric, labels=self.model.classes_), y, y_p))
+        elif metric == accuracy_score:
+            return list(map(metric, y, y_p))
+    """
+    def evaluate_model(self, data, metric=log_loss):
+        ''' evaluate model on a given data (X, y), example by example '''
         X, y = data[0].as_matrix(), data[1].as_matrix()
         
         metric_by_example = []
@@ -178,7 +197,7 @@ class SliceFinder:
                 metric_by_example.append(metric([y_], y_p))
 
         return metric_by_example
-        
+    """    
     def filter_by_effect_size(self, slices, reference, epsilon=0.5, max_workers=1, alpha=0.05, risk_control=True):
         ''' Filter slices by the minimum effect size '''
         filtered_slices = []
@@ -242,27 +261,29 @@ class SliceFinder:
 
         return merged_slices
 
-    def filter_by_significance(self, slices, reference, alpha, max_workers=1):
+    def filter_by_significance(self, slices, reference, alpha, max_workers=10):
         ''' Return significant slices '''
         filtered_slices = []
         rejected = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-            batch_jobs = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            batch_jobs = dict()
             for s in slices:
                 if s.size == 0:
                     continue
 
                 data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
-                batch_jobs.append(executor.submit(self.significance_job, data, reference, alpha))
+                #batch_jobs.append(executor.submit(self.significance_job, data, reference, alpha))
+                batch_jobs[executor.submit(self.significance_job, data, reference, alpha)] = s
+            
             for job in concurrent.futures.as_completed(batch_jobs):
                 if job.cancelled():
                     continue
                 elif job.done():
                     test_result = job.result()
                     if test_result:
-                        filtered_slices.append(s)
+                        filtered_slices.append(batch_jobs[job])
                     else:
-                        rejected.append(s)
+                        rejected.append(batch_jobs[job])
         return filtered_slices, rejected
         
     def significance_job(self, data, reference, alpha):
