@@ -87,6 +87,7 @@ class SliceFinder:
 
     def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3, risk_control=True, max_workers=1):
         ''' Find interesting slices '''
+        ''' risk_control parameter is obsolete; we do post processing for it '''
         assert k > 0, 'Number of recommendation k should be greater than 0'
 
         metrics_all = self.evaluate_model(self.data)
@@ -111,10 +112,6 @@ class SliceFinder:
             print('done')
             slices += interesting
             #slices = self.merge_slices(slices, reference, epsilon)
-            #if risk_control:
-            #    print('significance testing')
-            #    slices, rejected = self.filter_by_significance(slices, reference, alpha, max_workers=max_workers)    
-            #    print('done')
             if len(slices) >= k:
                 break
 
@@ -263,8 +260,10 @@ class SliceFinder:
 
     def filter_by_significance(self, slices, reference, alpha, max_workers=10):
         ''' Return significant slices '''
-        filtered_slices = []
-        rejected = []
+        filtered_slices, bf_filtered_slices, ai_filtered_slices = [], [], []
+        rejected, bf_rejected, ai_rejected = [], [], []
+
+        test_results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             batch_jobs = dict()
             for s in slices:
@@ -272,24 +271,38 @@ class SliceFinder:
                     continue
 
                 data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
-                #batch_jobs.append(executor.submit(self.significance_job, data, reference, alpha))
-                batch_jobs[executor.submit(self.significance_job, data, reference, alpha)] = s
+                batch_jobs[executor.submit(self.significance_job, data, reference, alpha, len(slices))] = s
             
             for job in concurrent.futures.as_completed(batch_jobs):
                 if job.cancelled():
                     continue
                 elif job.done():
-                    test_result = job.result()
-                    if test_result:
-                        filtered_slices.append(batch_jobs[job])
-                    else:
-                        rejected.append(batch_jobs[job])
-        return filtered_slices, rejected
+                    test_results.append((batch_jobs[job], job.result()))
+
+        alpha_wealth = alpha
+        for r in test_results:
+            s, p = r[0], r[1]
+            if p <= alpha:
+                filtered_slices.append(s)
+            else:
+                rejected.append(s)
+            if p <= alpha/len(test_results):
+                bf_filtered_slices.append(s)
+            else:
+                bf_rejected.append(s)
+            if p <= alpha_wealth:
+                ai_filtered_slices.append(s)
+                alpha_wealth += alpha
+            else:
+                ai_rejected.append(s)
+                alpha_wealth -= alpha/(1.-alpha)
+            
+        return filtered_slices, rejected, bf_filtered_slices, bf_rejected, ai_filtered_slices, ai_rejected
         
-    def significance_job(self, data, reference, alpha):
+    def significance_job(self, data, reference, alpha, n_slices, ):
         m_slice = self.evaluate_model(data)
         test_result = t_testing(m_slice, reference, alpha)
-        return test_result
+        return test_result 
 
     def binning(self, col, n_bin=20):
         ''' Equi-height binning '''

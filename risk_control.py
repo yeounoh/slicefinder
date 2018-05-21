@@ -18,7 +18,7 @@ def t_testing(sample_a, reference, alpha=0.05):
     t /= math.sqrt( np.var(sample_a)/len(sample_a) + sample_b_var/(n-len(sample_a)) )
 
     prob = stats.norm.cdf(t)
-    return prob <= alpha/2. or prob >= 1-alpha/2.
+    return prob
     
 
 def effect_size(sample_a, reference):
