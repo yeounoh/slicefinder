@@ -174,24 +174,7 @@ class SliceFinder:
             return list(map(functools.partial(metric, labels=self.model.classes_), y, y_p))
         elif metric == accuracy_score:
             return list(map(metric, y, y_p))
-    """
-    def evaluate_model(self, data, metric=log_loss):
-        ''' evaluate model on a given data (X, y), example by example '''
-        X, y = data[0].as_matrix(), data[1].as_matrix()
-        
-        metric_by_example = []
-        for x_, y_ in zip(X, y):
-            if np.isnan(x_).any():
-                continue
-            if metric == log_loss:
-                y_p = self.model.predict_proba([x_])
-                metric_by_example.append(metric([y_], y_p, labels=self.model.classes_))
-            elif metric == accuracy_score:
-                y_p = self.model.predict([x_])
-                metric_by_example.append(metric([y_], y_p))
 
-        return metric_by_example
-    """    
     def filter_by_effect_size(self, slices, reference, epsilon=0.5, max_workers=1, alpha=0.05, risk_control=True):
         ''' Filter slices by the minimum effect size '''
         filtered_slices = []
