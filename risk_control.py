@@ -31,5 +31,5 @@ def effect_size(sample_a, reference):
         sample_b_var = 0.
 
     diff = np.mean(sample_a) - sample_b_mean
-    diff /= (np.std(sample_a) + math.sqrt(sample_b_var))/2.
+    diff /= math.sqrt( (np.std(sample_a) + math.sqrt(sample_b_var))/2. )
     return diff
