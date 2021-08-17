@@ -164,8 +164,8 @@ class SliceFinder:
         X, y = copy.deepcopy(data[0]), copy.deepcopy(data[1])
         X['Label'] = y
         X = X.dropna()
-        y = X['Label'].as_matrix()
-        X = X.drop(['Label'], axis=1).as_matrix()
+        y = X['Label'].to_numpy()
+        X = X.drop(['Label'], axis=1).to_numpy()
         
         y_p = self.model.predict_proba(X)
         y_p = list(map(functools.partial(np.expand_dims, axis=0), y_p))
