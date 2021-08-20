@@ -21,7 +21,9 @@ def t_testing(sample_a, reference, alpha=0.05):
     return prob
     
 
-def effect_size(sample_a, reference):
+def effect_size(sample_a, reference, verbose=False):
+    if verbose:
+        print(f"Effect size on sample_a {sample_a} and reference {reference}")
     mu, s, n = reference[0], reference[1], reference[2]
     if n-len(sample_a) == 0:
         return 0
