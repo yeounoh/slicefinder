@@ -81,9 +81,10 @@ class Slice:
         return slice_desc 
 
 class SliceFinder:
-    def __init__(self, model, data, verbose=False):
+    def __init__(self, model, data, dataset_name, verbose=False):
         self.model = model
         self.data = data
+        self.dataset_name = dataset_name
         self.verbose = verbose
 
     def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3, risk_control=True, max_workers=1):
@@ -120,10 +121,10 @@ class SliceFinder:
 
         print ('sorting')
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
-        with open(f'./logs/slices_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
+        with open(f'./logs/slices_{self.dataset_name}_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
             pickle.dump(slices, handle)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
-        with open(f'./logs/uninteresting_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
+        with open(f'./logs/uninteresting_{self.dataset_name}_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
              pickle.dump(uninteresting, handle)
         return slices[:k]
             
