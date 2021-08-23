@@ -120,10 +120,10 @@ class SliceFinder:
 
         print ('sorting')
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
-        with open(f'slices_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
+        with open(f'./logs/slices_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
             pickle.dump(slices, handle)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
-        with open(f'uninteresting_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
+        with open(f'./logs/uninteresting_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
              pickle.dump(uninteresting, handle)
         return slices[:k]
             
