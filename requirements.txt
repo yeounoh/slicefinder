@@ -1,0 +1,13 @@
+wheel
+dash
+sklearn
+matplotlib
+pandas
+plotly
+numpy
+jupyter
+ipykernel
+tensorflow
+matplotlib
+bokeh
+ipywidgets
