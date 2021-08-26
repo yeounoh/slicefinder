@@ -81,10 +81,11 @@ class Slice:
         return slice_desc 
 
 class SliceFinder:
-    def __init__(self, model, data, dataset_name, verbose=False):
+    def __init__(self, model, data, dataset_name, metric=log_loss, verbose=False):
         self.model = model
         self.data = data
         self.dataset_name = dataset_name
+        self.metric = metric
         self.verbose = verbose
 
     def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3, risk_control=True, max_workers=1):
@@ -121,10 +122,10 @@ class SliceFinder:
 
         print ('sorting')
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
-        with open(f'./logs/slices_{self.dataset_name}_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
+        with open(f'./logs/slices_{self.dataset_name}_{self.model.name}_{self.metric.__name__}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
             pickle.dump(slices, handle)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
-        with open(f'./logs/uninteresting_{self.dataset_name}_{self.model.name}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
+        with open(f'./logs/uninteresting_{self.dataset_name}_{self.model.name}__{self.metric.__name__}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
              pickle.dump(uninteresting, handle)
         return slices[:k]
             
@@ -165,7 +166,7 @@ class SliceFinder:
                     crossed_slices.append(slice_ij)
         return crossed_slices
 
-    def evaluate_model(self, data, metric=log_loss):
+    def evaluate_model(self, data):
         ''' evaluate model on a given data (X, y), example by example '''
         if self.verbose:
             print(f"Evaluating model with X.shape: {data[0].shape} and y.shape: {data[1].shape}")
@@ -178,10 +179,13 @@ class SliceFinder:
         y_p = self.model.predict_proba(X)
         y_p = list(map(functools.partial(np.expand_dims, axis=0), y_p))
         y = list(map(functools.partial(np.expand_dims, axis=0), y))
-        if metric == log_loss:
-            return list(map(functools.partial(metric, labels=self.model.classes_), y, y_p))
-        elif metric == accuracy_score:
-            return list(map(metric, y, y_p))
+        if self.metric == log_loss:
+            return list(map(functools.partial(self.metric, labels=self.model.classes_), y, y_p))
+        elif self.metric in (accuracy_score, roc_auc_score): # TODO Correct? (Jervan)
+            return list(map(self.metric, y, y_p))
+        else:
+            raise NotImplementedError(f"Unknown metric {self.metric.__name__}")
+        
 
     def filter_by_effect_size(self, slices, reference, epsilon=0.5, max_workers=1, alpha=0.05, risk_control=True):
         ''' Filter slices by the minimum effect size '''
