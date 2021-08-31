@@ -176,15 +176,21 @@ class SliceFinder:
         y = X['Label'].to_numpy()
         X = X.drop(['Label'], axis=1).to_numpy()
         
-        y_p = self.model.predict_proba(X)
+        try:
+            y_p = self.model.predict_proba(X)
+        except AttributeError:
+            y_p = self.model.predict(X) # TODO jervan correct?
         y_p = list(map(functools.partial(np.expand_dims, axis=0), y_p))
         y = list(map(functools.partial(np.expand_dims, axis=0), y))
+
+        # TODO jervan: what with roc_auc_score?
         if self.metric == log_loss:
             return list(map(functools.partial(self.metric, labels=self.model.classes_), y, y_p))
-        elif self.metric in (accuracy_score, roc_auc_score): # TODO Correct? (Jervan)
+        elif self.metric == accuracy_score:
             return list(map(self.metric, y, y_p))
         else:
             raise NotImplementedError(f"Unknown metric {self.metric.__name__}")
+
         
 
     def filter_by_effect_size(self, slices, reference, epsilon=0.5, max_workers=1, alpha=0.05, risk_control=True):
