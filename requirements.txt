@@ -1,0 +1,10 @@
+sklearn
+matplotlib
+pandas
+numpy
+jupyter
+ipykernel
+tensorflow
+matplotlib
+bokeh
+ipywidgets

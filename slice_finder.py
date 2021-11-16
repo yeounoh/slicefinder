@@ -17,7 +17,7 @@ import copy
 import concurrent.futures
 from sklearn.metrics import log_loss, roc_auc_score, accuracy_score
 from scipy import stats
-from risk_control import *
+from .risk_control import effect_size, t_testing
 
 """
     Slice is specified with a dictionary that maps a set of attributes 
@@ -81,9 +81,12 @@ class Slice:
         return slice_desc 
 
 class SliceFinder:
-    def __init__(self, model, data):
+    def __init__(self, model, data, dataset_name, metric=log_loss, verbose=False):
         self.model = model
         self.data = data
+        self.dataset_name = dataset_name
+        self.metric = metric
+        self.verbose = verbose
 
     def find_slice(self, k=50, epsilon=0.2, alpha=0.05, degree=3, risk_control=True, max_workers=1):
         ''' Find interesting slices '''
@@ -107,19 +110,23 @@ class SliceFinder:
             interesting, uninteresting_ = self.filter_by_effect_size(candidates, reference, epsilon, 
                                                                     max_workers=max_workers, 
                                                                     risk_control=risk_control)
+            print(f"Found {len(uninteresting_)} uninteresting")
+            print(f"Found {len(interesting)} interesting")
             uninteresting += uninteresting_
             slices += interesting
             #slices = self.merge_slices(slices, reference, epsilon)
+            print(f"Total number of slices: {len(slices)}")
+            print(f"Total number of uninteresting: {len(uninteresting)}")
             if len(slices) >= k:
                 break
 
         print ('sorting')
         slices = sorted(slices, key=lambda s: s.size, reverse=True)
-        with open('slices.p','wb') as handle:
+        with open(f'./logs/slices_{self.dataset_name}_{self.model.name}_{self.metric.__name__}_k{k}_epsilon{epsilon}_degree{degree}.p','wb') as handle:
             pickle.dump(slices, handle)
         uninteresting = sorted(uninteresting, key=lambda s: s.size, reverse=True)
-        with open('uninteresting.p', 'wb') as handle:
-            pickle.dump(uninteresting, handle)
+        with open(f'./logs/uninteresting_{self.dataset_name}_{self.model.name}__{self.metric.__name__}_k{k}_epsilon{epsilon}_degree{degree}.p', 'wb') as handle:
+             pickle.dump(uninteresting, handle)
         return slices[:k]
             
     def slicing(self):
@@ -159,21 +166,32 @@ class SliceFinder:
                     crossed_slices.append(slice_ij)
         return crossed_slices
 
-    def evaluate_model(self, data, metric=log_loss):
+    def evaluate_model(self, data):
         ''' evaluate model on a given data (X, y), example by example '''
+        if self.verbose:
+            print(f"Evaluating model with X.shape: {data[0].shape} and y.shape: {data[1].shape}")
         X, y = copy.deepcopy(data[0]), copy.deepcopy(data[1])
         X['Label'] = y
         X = X.dropna()
-        y = X['Label'].as_matrix()
-        X = X.drop(['Label'], axis=1).as_matrix()
+        y = X['Label'].to_numpy()
+        X = X.drop(['Label'], axis=1).to_numpy()
         
-        y_p = self.model.predict_proba(X)
+        try:
+            y_p = self.model.predict_proba(X)
+        except AttributeError:
+            y_p = self.model.predict(X) # TODO jervan correct?
         y_p = list(map(functools.partial(np.expand_dims, axis=0), y_p))
         y = list(map(functools.partial(np.expand_dims, axis=0), y))
-        if metric == log_loss:
-            return list(map(functools.partial(metric, labels=self.model.classes_), y, y_p))
-        elif metric == accuracy_score:
-            return list(map(metric, y, y_p))
+
+        # TODO jervan: what with roc_auc_score?
+        if self.metric == log_loss:
+            return list(map(functools.partial(self.metric, labels=self.model.classes_), y, y_p))
+        elif self.metric == accuracy_score:
+            return list(map(self.metric, y, y_p))
+        else:
+            raise NotImplementedError(f"Unknown metric {self.metric.__name__}")
+
+        
 
     def filter_by_effect_size(self, slices, reference, epsilon=0.5, max_workers=1, alpha=0.05, risk_control=True):
         ''' Filter slices by the minimum effect size '''
@@ -186,6 +204,7 @@ class SliceFinder:
                 if s.size == 0:
                     continue
                 batch_jobs.append(executor.submit(self.eff_size_job, s, reference, alpha))
+            print(f"Launching {len(batch_jobs)} batch jobs")
             for job in concurrent.futures.as_completed(batch_jobs):
                 if job.cancelled():
                     continue
@@ -199,9 +218,11 @@ class SliceFinder:
         return filtered_slices, rejected
 
     def eff_size_job(self, s, reference, alpha=0.05):
+        if self.verbose:
+            print(f"eff_size_job on slice {s}, reference {reference}")
         data = (self.data[0].loc[s.data_idx], self.data[1].loc[s.data_idx])
         m_slice = self.evaluate_model(data)
-        eff_size = effect_size(m_slice, reference)
+        eff_size = effect_size(m_slice, reference, self.verbose)
         #test_result = t_testing(m_slice, reference, alpha)
 
         s.set_metric(np.mean(m_slice))
@@ -227,7 +248,7 @@ class SliceFinder:
                 if s_.union(sorted_slices[j]):
                     m_s_ = self.evaluate_model( 
                                 (self.data[0].loc[s_.data_idx],self.data[1].loc[s_.data_idx]) )
-                    eff_size = effect_size(m_s_, reference)
+                    eff_size = effect_size(m_s_, reference, self.verbose)
                     if eff_size >= epsilon:
                         s_.set_effect_size(eff_size)
                         taken.append(j)
